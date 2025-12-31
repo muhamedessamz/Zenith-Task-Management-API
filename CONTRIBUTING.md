@@ -455,6 +455,7 @@ Contributors will be recognized in:
 
 - Open a [Discussion](https://github.com/muhamedessamz/Zenith-Task-Management-API/discussions)
 - Join our community chat
+- LinkedIn: [Mohamed Essam](https://www.linkedin.com/in/mohamedessamz/)
 - Email: muhamedessamz@gmail.com
 
 ---

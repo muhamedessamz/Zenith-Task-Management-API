@@ -902,7 +902,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 **Mohamed Essam**
 - GitHub: [@muhamedessamz](https://github.com/muhamedessamz)
-- LinkedIn: [Mohamed Essam](https://linkedin.com/in/muhamedessamz)
+- LinkedIn: [Mohamed Essam](https://www.linkedin.com/in/mohamedessamz/)
 
 ---
 
