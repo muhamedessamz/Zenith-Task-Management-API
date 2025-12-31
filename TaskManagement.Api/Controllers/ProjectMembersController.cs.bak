@@ -1,0 +1,192 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
+using TaskManagement.Api.DTOs.Project;
+using TaskManagement.Core.Entities;
+using TaskManagement.Infrastructure.Data;
+using TaskManagement.Core.Interfaces;
+
+namespace TaskManagement.Api.Controllers
+{
+    [ApiController]
+    [Route("api/projects/{projectId}/members")]
+    [Authorize]
+    public class ProjectMembersController : ControllerBase
+    {
+        private readonly AppDbContext _context;
+        private readonly UserManager<User> _userManager;
+        private readonly INotificationService _notificationService;
+
+        public ProjectMembersController(AppDbContext context, UserManager<User> userManager, INotificationService notificationService)
+        {
+            _context = context;
+            _userManager = userManager;
+            _notificationService = notificationService;
+        }
+
+        // GET: api/projects/{projectId}/members
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<ProjectMemberDto>>> GetProjectMembers(int projectId)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (userId == null) return Unauthorized();
+
+            var project = await _context.Projects
+                .Include(p => p.Members)
+                .ThenInclude(m => m.User)
+                .FirstOrDefaultAsync(p => p.Id == projectId);
+
+            if (project == null) return NotFound("Project not found");
+
+            // Check if user has access to view members (Member or Owner)
+            bool isMember = project.Members.Any(m => m.UserId == userId);
+            bool isOwner = project.UserId == userId;
+
+            if (!isOwner && !isMember) return Forbid();
+
+            var members = project.Members.Select(m => new ProjectMemberDto
+            {
+                Id = m.Id,
+                UserId = m.UserId,
+                DisplayName = m.User?.DisplayName ?? "Unknown",
+                Email = m.User?.Email,
+                ProfilePicture = m.User?.ProfilePicture,
+                Role = m.Role,
+                JoinedAt = m.JoinedAt
+            }).ToList();
+
+            return Ok(members);
+        }
+
+        // POST: api/projects/{projectId}/members
+        [HttpPost]
+        public async Task<ActionResult> AddMember(int projectId, AddProjectMemberDto dto)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (userId == null) return Unauthorized();
+
+            var project = await _context.Projects
+                .Include(p => p.Members)
+                .FirstOrDefaultAsync(p => p.Id == projectId);
+
+            if (project == null) return NotFound("Project not found");
+
+            // Permission Check: Owner or Admin/Editor can add members? Let's restrict to Owner and Editor for now.
+            var currentUserMember = project.Members.FirstOrDefault(m => m.UserId == userId);
+            bool isOwner = project.UserId == userId || (currentUserMember != null && currentUserMember.Role == "Owner");
+            bool isEditor = currentUserMember != null && currentUserMember.Role == "Editor";
+
+            if (!isOwner && !isEditor) return Forbid("You do not have permission to add members.");
+
+            // Find user to add
+            User? userToAdd = null;
+            if (dto.UserIdentifier.Contains("@"))
+            {
+                userToAdd = await _userManager.FindByEmailAsync(dto.UserIdentifier);
+            }
+            else
+            {
+                userToAdd = await _context.Users.FirstOrDefaultAsync(u => u.DisplayName == dto.UserIdentifier);
+            }
+
+            if (userToAdd == null) return NotFound("User to add not found");
+
+            // Check if already member
+            if (project.Members.Any(m => m.UserId == userToAdd.Id))
+            {
+                return BadRequest("User is already a member of this project");
+            }
+
+            var member = new ProjectMember
+            {
+                ProjectId = projectId,
+                UserId = userToAdd.Id,
+                Role = dto.Role,
+                JoinedAt = DateTime.UtcNow
+            };
+
+            _context.ProjectMembers.Add(member);
+            await _context.SaveChangesAsync();
+
+            // Notify
+            var currentUser = await _userManager.FindByIdAsync(userId);
+            var addedByName = currentUser?.DisplayName ?? "Project Admin";
+            await _notificationService.NotifyProjectMemberAddedAsync(project, userToAdd.Id, addedByName);
+
+            return Ok(new { message = "Member added successfully" });
+        }
+
+        // PUT: api/projects/{projectId}/members/{userId}
+        [HttpPut("{targetUserId}")]
+        public async Task<IActionResult> UpdateMemberRole(int projectId, string targetUserId, UpdateProjectMemberRoleDto dto)
+        {
+             var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (currentUserId == null) return Unauthorized();
+
+            var project = await _context.Projects
+                .Include(p => p.Members)
+                .FirstOrDefaultAsync(p => p.Id == projectId);
+
+            if (project == null) return NotFound("Project not found");
+
+             // Permission Check: Only Owner can change roles (or elevate/demote)
+            var currentUserMember = project.Members.FirstOrDefault(m => m.UserId == currentUserId);
+            bool isOwner = project.UserId == currentUserId || (currentUserMember != null && currentUserMember.Role == "Owner");
+
+            if (!isOwner) return Forbid("Only project owner can update member roles.");
+
+            var memberToUpdate = project.Members.FirstOrDefault(m => m.UserId == targetUserId);
+            if (memberToUpdate == null) return NotFound("Member not found in project");
+
+            // Prevent changing own role via this endpoint? Or allow transfer ownership logic separately?
+            // For simplicity, allow updating role.
+
+            memberToUpdate.Role = dto.Role;
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+
+        // DELETE: api/projects/{projectId}/members/{userId}
+        [HttpDelete("{targetUserId}")]
+        public async Task<IActionResult> RemoveMember(int projectId, string targetUserId)
+        {
+            var currentUserId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (currentUserId == null) return Unauthorized();
+
+            var project = await _context.Projects
+                .Include(p => p.Members)
+                .FirstOrDefaultAsync(p => p.Id == projectId);
+
+            if (project == null) return NotFound("Project not found");
+
+             // Permission Check: 
+             // 1. Owner can remove anyone.
+             // 2. Editor can remove regular viewers? (Let's stick to Owner only or Self-leave)
+             // 3. User can remove themselves (Leave project).
+
+            var currentUserMember = project.Members.FirstOrDefault(m => m.UserId == currentUserId);
+            bool isOwner = project.UserId == currentUserId || (currentUserMember != null && currentUserMember.Role == "Owner");
+            bool isSelf = currentUserId == targetUserId;
+
+            if (!isOwner && !isSelf) return Forbid("You do not have permission to remove this member.");
+
+            // Cannot remove the Creator/Owner (if we enforce one owner)
+            // If the target is the project Creator (UserId on Project), prevent removal unless ownership transfer.
+            if (targetUserId == project.UserId)
+            {
+                return BadRequest("Cannot remove the project owner. Delete the project instead.");
+            }
+
+            var memberToRemove = project.Members.FirstOrDefault(m => m.UserId == targetUserId);
+            if (memberToRemove == null) return NotFound("Member not found");
+
+            _context.ProjectMembers.Remove(memberToRemove);
+            await _context.SaveChangesAsync();
+
+            return NoContent();
+        }
+    }
+}
