@@ -187,7 +187,13 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.WithOrigins("http://localhost:5173", "http://localhost:3000", "http://localhost:5174")
+        policy.WithOrigins(
+                "http://localhost:5173", 
+                "http://localhost:3000", 
+                "http://localhost:5174",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:3000"
+            )
               .AllowAnyMethod()
               .AllowAnyHeader()
               .AllowCredentials();
@@ -195,7 +201,11 @@ builder.Services.AddCors(options =>
 
     options.AddPolicy("Production", policy =>
     {
-        policy.WithOrigins("https://yourdomain.com", "https://www.yourdomain.com")
+        policy.WithOrigins(
+                "https://zenith1-ochre.vercel.app",
+                "http://zenith.runasp.net",
+                "https://zenith.runasp.net"
+            )
               .AllowAnyMethod()
               .AllowAnyHeader()
               .AllowCredentials();
@@ -260,6 +270,26 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Apply pending migrations automatically on startup
+// Auto-Migrate (Create DB tables on MonsterASP)
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    try
+    {
+        Log.Information("Checking for pending database migrations...");
+        db.Database.Migrate();
+        Log.Information("✅ Database migrated successfully");
+        Console.WriteLine("✅ Database migrated successfully.");
+    }
+    catch (Exception ex)
+    {
+        Log.Error(ex, "❌ An error occurred while migrating the database");
+        Console.WriteLine($"❌ Migration Error: {ex.Message}");
+        // Don't throw in production - let the app start and log the error
+    }
+}
+
 // Add Global Exception Handler Middleware
 app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 
@@ -268,7 +298,8 @@ app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.UseHttpsRedirection();
+// DO NOT enable HTTPS redirection on MonsterASP
+// app.UseHttpsRedirection();
 
 // Serve static files (for uploaded images)
 app.UseStaticFiles();
@@ -281,6 +312,9 @@ app.UseIpRateLimiting();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Root Endpoint (required by MonsterASP)
+app.MapGet("/", () => Results.Ok("Task Management API is running..."));
 
 app.MapControllers();
 app.MapHub<TaskManagement.Api.Hubs.NotificationsHub>("/hubs/notifications");
