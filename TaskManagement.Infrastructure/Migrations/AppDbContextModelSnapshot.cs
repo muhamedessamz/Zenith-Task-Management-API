@@ -255,16 +255,11 @@ namespace TaskManagement.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
 
-                    b.Property<string>("UserId1")
-                        .HasColumnType("nvarchar(450)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("TaskId");
 
                     b.HasIndex("UserId");
-
-                    b.HasIndex("UserId1");
 
                     b.ToTable("Comments");
                 });
@@ -991,15 +986,11 @@ namespace TaskManagement.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
-                    b.HasOne("TaskManagement.Core.Entities.User", null)
-                        .WithMany()
+                    b.HasOne("TaskManagement.Core.Entities.User", "User")
+                        .WithMany("Comments")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
-
-                    b.HasOne("TaskManagement.Core.Entities.User", "User")
-                        .WithMany("Comments")
-                        .HasForeignKey("UserId1");
 
                     b.Navigation("Task");
 

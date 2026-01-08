@@ -5,6 +5,7 @@ namespace TaskManagement.Core.Interfaces
     public interface IProjectRepository
     {
         Task<List<Project>> GetAllAsync();
+        Task<List<Project>> GetUserProjectsAsync(string userId);
         Task<Project?> GetByIdAsync(int id);
         Task<Project> CreateAsync(Project project, string userId);
         Task<Project> UpdateAsync(Project project);

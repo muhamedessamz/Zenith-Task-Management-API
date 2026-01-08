@@ -31,9 +31,17 @@ namespace TaskManagement.Api.Controllers
             var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (userId == null) return Unauthorized();
 
-            // Return ALL projects so users can assign tasks to any project
-            // Note: Individual project details still require membership/ownership
-            var projects = await _projectRepository.GetAllAsync();
+            Console.WriteLine($"=== GetAllProjects called for user: {userId} ===");
+
+            // Get only projects where the user is a member
+            var projects = await _projectRepository.GetUserProjectsAsync(userId);
+
+            Console.WriteLine($"Found {projects.Count} projects for user {userId}");
+            foreach (var p in projects)
+            {
+                Console.WriteLine($"  - Project: {p.Title} (ID: {p.Id}, Owner: {p.UserId})");
+                Console.WriteLine($"    Members: {string.Join(", ", p.Members.Select(m => m.UserId))}");
+            }
 
             var projectDtos = projects.Select(p => MapToReadDto(p, userId)).ToList();
 

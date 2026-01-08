@@ -26,6 +26,45 @@ namespace TaskManagement.Infrastructure.Repositories
                 .ToListAsync();
         }
 
+        public async Task<List<Project>> GetUserProjectsAsync(string userId)
+        {
+            // CRITICAL FIX: Query ProjectMembers first, then get Projects
+            // This prevents EF Core query translation issues with Include + Where on navigation properties
+            
+            Console.WriteLine($"[ProjectRepository] GetUserProjectsAsync called for userId: {userId}");
+            
+            // Step 1: Get project IDs where user is a member
+            var projectIds = await _context.ProjectMembers
+                .AsNoTracking()
+                .Where(pm => pm.UserId == userId)
+                .Select(pm => pm.ProjectId)
+                .ToListAsync();
+
+            Console.WriteLine($"[ProjectRepository] Found {projectIds.Count} project memberships: [{string.Join(", ", projectIds)}]");
+
+            // Step 2: If no memberships, return empty list immediately
+            if (!projectIds.Any())
+            {
+                Console.WriteLine($"[ProjectRepository] No memberships found, returning empty list");
+                return new List<Project>();
+            }
+
+            // Step 3: Fetch full project details for those IDs
+            var projects = await _context.Projects
+                .AsNoTracking()
+                .Where(p => projectIds.Contains(p.Id))
+                .Include(p => p.User)
+                .Include(p => p.Category)
+                .Include(p => p.Members)
+                .Include(p => p.Tasks)
+                .OrderByDescending(p => p.CreatedAt)
+                .ToListAsync();
+
+            Console.WriteLine($"[ProjectRepository] Returning {projects.Count} projects");
+            
+            return projects;
+        }
+
         public async Task<Project?> GetByIdAsync(int id)
         {
             return await _context.Projects
@@ -39,6 +78,8 @@ namespace TaskManagement.Infrastructure.Repositories
 
         public async Task<Project> CreateAsync(Project project, string userId)
         {
+            Console.WriteLine($"[ProjectRepository] CreateAsync called - Project: '{project.Title}', UserId: {userId}");
+            
             // Validate category if provided
             if (project.CategoryId.HasValue)
             {
@@ -59,7 +100,11 @@ namespace TaskManagement.Infrastructure.Repositories
             };
             _context.ProjectMembers.Add(member);
 
+            Console.WriteLine($"[ProjectRepository] Adding ProjectMember: UserId={userId}, Role=Owner");
+
             await _context.SaveChangesAsync();
+
+            Console.WriteLine($"[ProjectRepository] Project created successfully - ID: {project.Id}");
 
             // Load properties for return
             await _context.Entry(project).Reference(p => p.User).LoadAsync();
